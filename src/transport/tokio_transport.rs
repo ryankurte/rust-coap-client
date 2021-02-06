@@ -1,39 +1,37 @@
 use std::net::SocketAddr;
 use std::io::{Error, ErrorKind};
 use std::collections::HashMap;
-use std::time::{SystemTime, Instant, Duration};
-use std::task::{Poll, Context};
-use std::pin::Pin;
+use std::time::{Instant};
 
 use log::{debug, error};
-use futures::Future;
-
-use coap_lite::{CoapRequest, CoapResponse, Packet, RequestType, MessageType, MessageClass};
-use tokio::sync::mpsc::{channel, Sender, Receiver};
 
 
+use coap_lite::{CoapResponse, Packet, MessageType, MessageClass};
+use tokio::sync::mpsc::{channel, Sender};
+
+use super::Transport;
 use crate::{RequestOptions, COAP_MTU};
-
-
-pub trait Transport {
-    type Error;
-    type Response: Future<Output = Result<CoapResponse, Self::Error>>;
-
-    fn request(&mut self, req: CoapRequest<&str>, opts: RequestOptions) -> Self::Response;
-}
 
 pub struct Tokio {
     message_id: u16,
-    sender_tx: Sender<Handle>,
+    raw_tx: Sender<Vec<u8>>,
+    ctl_tx: Sender<Ctl>,
     listener: tokio::task::JoinHandle<Result<(), Error>>,
 }
 
+#[derive(Clone, Debug)]
 struct Handle {
+    message_id: u16,
     token: u32,
-    data: Vec<u8>,
     tx: Sender<Option<CoapResponse>>,
     observer: bool,
     expiry: Instant,
+}
+
+#[derive(Debug)]
+enum Ctl {
+    Register(u32, Sender<CoapResponse>),
+    Deregister(u32),
 }
 
 impl Tokio {
@@ -43,19 +41,29 @@ impl Tokio {
         // Connect to UDP socket
         let udp_sock = Self::udp_connect(peer).await?;
 
-        let (raw_tx, mut raw_rx) = channel::<(Vec<u8>)>(10);
-        let (sender_tx, mut sender_rx) = channel::<Handle>(10);
+        let (raw_tx, mut raw_rx) = channel::<Vec<u8>>(10);
+        let (ctl_tx, mut ctl_rx) = channel::<Ctl>(10);
 
         // Run listener thread
-        let raw_tx = raw_tx.clone();
+        let listener_raw_tx = raw_tx.clone();
         let listener = tokio::task::spawn(async move {
             let mut buff = [0u8; COAP_MTU];
             let mut handles = HashMap::new();
 
-            let mut upd = tokio::time::interval(Duration::from_secs(2));
-
             loop {
                 tokio::select!(
+                    // Receive from external sender channel
+                    Some(ctl) = ctl_rx.recv() => {
+                        match ctl {
+                            Ctl::Register(token, rx) => {
+                                debug!("Register handler");
+                                handles.insert(token, rx);
+                            },
+                            Ctl::Deregister(token) => {
+                                handles.remove(&token);
+                            }
+                        }
+                    }
                     // Receive from the mounted socket
                     r = udp_sock.recv(&mut buff) => {
                         let data = match r {
@@ -67,7 +75,7 @@ impl Tokio {
                         };
 
                         // Handle received data
-                        if let Err(e) = Self::handle_rx(&mut handles, data, raw_tx.clone()).await {
+                        if let Err(e) = Self::handle_rx(&mut handles, data, listener_raw_tx.clone()).await {
                             error!("net handle error: {:?}", e);
                             break;
                         }
@@ -80,41 +88,23 @@ impl Tokio {
                             break;
                         }
                     }
-                    // Receive from external sender channel
-                    Some(h) = sender_rx.recv() => {
-                        debug!("Register sender");
-                        let data = h.data.clone();
-                        
-                        handles.insert(h.token, h);
+                );
 
-                        raw_tx.send(data).await.unwrap();
-                    }
-                    // Check for request timeouts
-                    _ = upd.tick() => {
-                        let i = Instant::now();
-                        // Send empty responses to signal expiry
-                        for (_k, h) in &handles {
-                            if h.expiry > i {
-                                h.tx.send(None).await.unwrap();
-                            }
-                        }
-                        // Remove expired entries
-                        handles.retain(|_k, h| h.expiry < i );
-                    }
-                )
+                debug!("Exit coap UDP handler");
             }
 
             Ok(())
         });
 
         Ok(Self{
-            message_id: 0,
-            sender_tx,
+            message_id: rand::random(),
+            raw_tx,
+            ctl_tx,
             listener,
         })
     }
 
-    async fn handle_rx(handles: &mut HashMap<u32, Handle>, data: &[u8], tx: Sender<Vec<u8>>) -> Result<(), Error> {
+    async fn handle_rx(handles: &mut HashMap<u32, Sender<CoapResponse>>, data: &[u8], tx: Sender<Vec<u8>>) -> Result<(), Error> {
         // Decode packet
         let packet = match Packet::from_bytes(&data) {
             Ok(p) => p,
@@ -145,23 +135,17 @@ impl Tokio {
                 debug!("Handled response: {:?}, forwarding to caller", resp);
 
                 // Forward to requester
-                h.tx.send(Some(resp)).await.unwrap();
+                h.send(resp).await.unwrap();
 
                 // Send acknowlegement if required
                 if packet.header.get_type() == MessageType::Confirmable {
-                    let mut request = Packet::new();
-                    request.header.message_id = packet.header.message_id;
-                    request.header.code = MessageClass::Empty;
-                    request.header.set_type(MessageType::Acknowledgement);
-                    request.set_token(packet.get_token().to_vec());
 
-                    let encoded = request.to_bytes().unwrap();
-                    tx.send(encoded).await.unwrap();
-                }
+                    if let Some(mut ack) = CoapResponse::new(&packet) {
+                        ack.message.header.code = MessageClass::Empty;
 
-                // Remove from tracking if non-observing
-                if !h.observer {
-                    handles.remove(&token);
+                        let encoded = ack.message.to_bytes().unwrap();
+                        tx.send(encoded).await.unwrap();
+                    }
                 }
             },
             None => {
@@ -183,10 +167,10 @@ impl Tokio {
     }
 
     /// Helper to create UDP connections
-    async fn udp_connect(peer: &str) -> Result<tokio::net::UdpSocket, Error> {
+    async fn udp_connect(host: &str) -> Result<tokio::net::UdpSocket, Error> {
 
         // Resolve peer address to determine local socket type
-        let peer_addr = tokio::net::lookup_host(peer).await?.next();
+        let peer_addr = tokio::net::lookup_host(host).await?.next();
 
         // Work out bind address
         let bind_addr = match peer_addr {
@@ -215,49 +199,74 @@ impl Tokio {
     }
 }
 
-pub struct TokioRequest {
-    tx: Sender<Handle>,
-    rx: Receiver<Option<CoapResponse>>,
-    retries: usize,
-}
+#[async_trait::async_trait]
+impl Transport for Tokio {
+    type Error = Error;
 
-impl Future for TokioRequest {
-    type Output = Result<CoapResponse, Error>;
+    async fn request(&mut self, req: Packet, opts: RequestOptions) -> Result<CoapResponse, Self::Error> {
+        // Create request handle
+        let (tx, mut rx) = channel(1);
+        let token = crate::token_as_u32(req.get_token());
 
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        // Receive from the channel
-        let r = match self.rx.poll_recv(cx) {
-            Poll::Ready(Some(v)) => v,
-            _ => return Poll::Pending,
-        };
+        // Register handler
+        if let Err(e) =self.ctl_tx.send(Ctl::Register(token, tx)).await {
+            error!("Internal send error: {:?}", e);
+            return Err(Error::new(ErrorKind::Other, "Internal ctl send failed"));
+        }
 
-        match r {
-            Some(r) => Poll::Ready(Ok(r)),
-            None if self.retries > 0 => {
+        // For the allowed number of retries
+        let mut resp = Ok(None);
 
+        for i in 0..opts.retries {
+            // TODO: control / bump message_id each retry?
 
-                Poll::Pending
-            },
-            None => {
-                Poll::Ready(Err(Error::new(ErrorKind::TimedOut, "Request timed out")))
+            // Encode data
+            let data = req.to_bytes().unwrap();
+
+            // Issue request
+            if let Err(e) = self.raw_tx.send(data).await {
+                error!("Internal send error: {:?}", e);
+                break;
             }
+
+            // Await response
+            match tokio::time::timeout(opts.timeout, rx.recv()).await {
+                Ok(Some(v)) => resp = Ok(Some(v)),
+                Ok(None) | Err(_) => {
+                    debug!("Timeout awaiting response (retry {})", i);
+                    // TODO: backoff and retry
+
+                    continue;
+                },
+            };
+        }
+
+        // Remove handler
+        if let Err(e) =self.ctl_tx.send(Ctl::Deregister(token)).await {
+            error!("Internal send error: {:?}", e);
+            return Err(Error::new(ErrorKind::Other, "Internal ctl send failed"));
+        }
+
+        // Handle results
+        match resp {
+            Ok(Some(v)) => Ok(v),
+            Ok(None) => Err(Error::new(ErrorKind::TimedOut, "Request timed out")),
+            Err(e) => Err(e),
         }
     }
 }
 
-impl Transport for Tokio {
-    type Error = Error;
-    type Response = TokioRequest;
 
-    fn request(&mut self, req: CoapRequest<&str>, opts: RequestOptions) -> Self::Response {
-        let (tx, rx) = channel(10);
+#[cfg(test)]
+mod test {
+    use crate::{TokioClient, RequestOptions};
 
-        // Issue request
+    #[tokio::test]
+    async fn test_get() {
+        let mut client = TokioClient::connect("coap.me:5683").await.unwrap();
 
-        // Await response
-
-        // Retry if required
-        
-        TokioRequest{ tx: self.sender_tx.clone(), rx, retries: opts.retries }
+        let resp = client.get("hello", RequestOptions::default()).await.unwrap();
+        assert_eq!(resp, b"world".to_vec());
     }
+
 }

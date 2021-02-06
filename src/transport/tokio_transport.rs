@@ -19,18 +19,9 @@ pub struct Tokio {
     listener: tokio::task::JoinHandle<Result<(), Error>>,
 }
 
-#[derive(Clone, Debug)]
-struct Handle {
-    message_id: u16,
-    token: u32,
-    tx: Sender<Option<CoapResponse>>,
-    observer: bool,
-    expiry: Instant,
-}
-
 #[derive(Debug)]
 enum Ctl {
-    Register(u32, Sender<CoapResponse>),
+    Register(u32, Sender<Packet>),
     Deregister(u32),
 }
 
@@ -42,7 +33,7 @@ impl Tokio {
         let udp_sock = Self::udp_connect(peer).await?;
 
         let (raw_tx, mut raw_rx) = channel::<Vec<u8>>(10);
-        let (ctl_tx, mut ctl_rx) = channel::<Ctl>(10);
+        let (ctl_tx, mut ctl_rx) = channel::<Ctl>(1);
 
         // Run listener thread
         let listener_raw_tx = raw_tx.clone();
@@ -53,15 +44,16 @@ impl Tokio {
             loop {
                 tokio::select!(
                     // Receive from external sender channel
-                    Some(ctl) = ctl_rx.recv() => {
+                    ctl = ctl_rx.recv() => {
                         match ctl {
-                            Ctl::Register(token, rx) => {
+                            Some(Ctl::Register(token, rx)) => {
                                 debug!("Register handler");
                                 handles.insert(token, rx);
                             },
-                            Ctl::Deregister(token) => {
+                            Some(Ctl::Deregister(token)) => {
                                 handles.remove(&token);
-                            }
+                            },
+                            _ => (),
                         }
                     }
                     // Receive from the mounted socket
@@ -89,9 +81,9 @@ impl Tokio {
                         }
                     }
                 );
-
-                debug!("Exit coap UDP handler");
             }
+
+            debug!("Exit coap UDP handler");
 
             Ok(())
         });
@@ -104,7 +96,7 @@ impl Tokio {
         })
     }
 
-    async fn handle_rx(handles: &mut HashMap<u32, Sender<CoapResponse>>, data: &[u8], tx: Sender<Vec<u8>>) -> Result<(), Error> {
+    async fn handle_rx(handles: &mut HashMap<u32, Sender<Packet>>, data: &[u8], tx: Sender<Vec<u8>>) -> Result<(), Error> {
         // Decode packet
         let packet = match Packet::from_bytes(&data) {
             Ok(p) => p,
@@ -115,10 +107,10 @@ impl Tokio {
         };
 
         // Convert to response
-        let resp = match CoapResponse::new(&packet) {
-            Some(r) => r,
-            None => {
-                debug!("packet was not response type");
+        match packet.header.code {
+            MessageClass::Response(_) => (),
+            _ => {
+                debug!("packet was not response type: {:?}", packet);
                 return Err(Error::new(ErrorKind::InvalidData, "unexpected packet type"));
             }
         };
@@ -132,10 +124,10 @@ impl Tokio {
         // Return to caller or respond with failure
         match handle {
             Some(h) => {
-                debug!("Handled response: {:?}, forwarding to caller", resp);
+                debug!("Handled response: {:?}, forwarding to caller", packet);
 
                 // Forward to requester
-                h.send(resp).await.unwrap();
+                h.send(packet.clone()).await.unwrap();
 
                 // Send acknowlegement if required
                 if packet.header.get_type() == MessageType::Confirmable {
@@ -149,7 +141,7 @@ impl Tokio {
                 }
             },
             None => {
-                debug!("Unhandled response: {:?}, sending reset", resp);
+                debug!("Unhandled response: {:?}, sending reset", packet);
 
                 // Send connection reset
                 let mut request = Packet::new();
@@ -203,15 +195,15 @@ impl Tokio {
 impl Transport for Tokio {
     type Error = Error;
 
-    async fn request(&mut self, req: Packet, opts: RequestOptions) -> Result<CoapResponse, Self::Error> {
+    async fn request(&mut self, req: Packet, opts: RequestOptions) -> Result<Packet, Self::Error> {
         // Create request handle
-        let (tx, mut rx) = channel(1);
+        let (tx, mut rx) = channel(10);
         let token = crate::token_as_u32(req.get_token());
 
         // Register handler
-        if let Err(e) =self.ctl_tx.send(Ctl::Register(token, tx)).await {
-            error!("Internal send error: {:?}", e);
-            return Err(Error::new(ErrorKind::Other, "Internal ctl send failed"));
+        if let Err(e) = self.ctl_tx.send(Ctl::Register(token, tx)).await {
+            error!("Register send error: {:?}", e);
+            return Err(Error::new(ErrorKind::Other, "Register send failed"));
         }
 
         // For the allowed number of retries
@@ -225,26 +217,28 @@ impl Transport for Tokio {
 
             // Issue request
             if let Err(e) = self.raw_tx.send(data).await {
-                error!("Internal send error: {:?}", e);
+                error!("Raw send error: {:?}", e);
                 break;
             }
 
             // Await response
             match tokio::time::timeout(opts.timeout, rx.recv()).await {
-                Ok(Some(v)) => resp = Ok(Some(v)),
+                Ok(Some(v)) => {
+                    resp = Ok(Some(v));
+                    break;
+                },
                 Ok(None) | Err(_) => {
                     debug!("Timeout awaiting response (retry {})", i);
-                    // TODO: backoff and retry
-
+                    // TODO: await backoff
                     continue;
                 },
             };
         }
 
         // Remove handler
-        if let Err(e) =self.ctl_tx.send(Ctl::Deregister(token)).await {
-            error!("Internal send error: {:?}", e);
-            return Err(Error::new(ErrorKind::Other, "Internal ctl send failed"));
+        if let Err(e) = self.ctl_tx.send(Ctl::Deregister(token)).await {
+            error!("Deregister send error: {:?}", e);
+            return Err(Error::new(ErrorKind::Other, "Deregister send failed"));
         }
 
         // Handle results
@@ -259,10 +253,13 @@ impl Transport for Tokio {
 
 #[cfg(test)]
 mod test {
+    use simplelog::{SimpleLogger, Config, LevelFilter};
     use crate::{TokioClient, RequestOptions};
 
     #[tokio::test]
     async fn test_get() {
+        let _ = SimpleLogger::init(LevelFilter::Debug, Config::default());
+
         let mut client = TokioClient::connect("coap.me:5683").await.unwrap();
 
         let resp = client.get("hello", RequestOptions::default()).await.unwrap();

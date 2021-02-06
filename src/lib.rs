@@ -28,8 +28,9 @@ impl Default for RequestOptions {
     }
 }
 
-pub enum Error {
-
+#[derive(Debug)]
+pub enum Error<T> {
+    Transport(T),
 }
 
 /// Generic (async) CoAP client
@@ -57,7 +58,7 @@ where
     T: Transport<Error=E>,
 {
     /// Perform a basic CoAP request
-    pub async fn request(&mut self, method: Method, resource: &str, data: Option<&[u8]>, opts: RequestOptions) -> Result<CoapResponse, E> {
+    pub async fn request(&mut self, method: Method, resource: &str, data: Option<&[u8]>, opts: RequestOptions) -> Result<Packet, Error<E>> {
 
         // Update message ID
         let message_id = self.message_id;
@@ -85,14 +86,27 @@ where
         let token = t.to_be_bytes().to_vec();
         request.message.set_token(token);
 
-        let resp = self.transport.request(request.message, opts).await?;
+        let resp = self.transport.request(request.message, opts).await
+            .map_err(Error::Transport)?;
 
+        // TODO: handle response error codes here...
         
         Ok(resp)
     }
 
-    pub async fn get(&mut self, resource: &str, opts: RequestOptions) -> Result<Vec<u8>, ()> {
-        unimplemented!()
+    pub async fn get(&mut self, resource: &str, opts: RequestOptions) -> Result<Vec<u8>, Error<E>> {
+        let resp = self.request(Method::Get, resource, None, opts).await?;
+        Ok(resp.payload)
+    }
+
+    pub async fn put(&mut self, resource: &str, data: Option<&[u8]>, opts: RequestOptions) -> Result<Vec<u8>, Error<E>> {
+        let resp = self.request(Method::Put, resource, data, opts).await?;
+        Ok(resp.payload)
+    }
+
+    pub async fn post(&mut self, resource: &str, data: Option<&[u8]>, opts: RequestOptions) -> Result<Vec<u8>, Error<E>> {
+        let resp = self.request(Method::Post, resource, data, opts).await?;
+        Ok(resp.payload)
     }
 }
 

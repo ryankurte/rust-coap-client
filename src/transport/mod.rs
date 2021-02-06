@@ -11,6 +11,6 @@ pub use tokio_transport::Tokio;
 pub trait Transport {
     type Error;
 
-    async fn request(&mut self, req: Packet, opts: RequestOptions) -> Result<CoapResponse, Self::Error>;
+    async fn request(&mut self, req: Packet, opts: RequestOptions) -> Result<Packet, Self::Error>;
 }
 

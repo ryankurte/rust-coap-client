@@ -1,6 +1,6 @@
 # An(other) Asynchronous Rust CoAP Client
 
-An asynchronous CoAP client with pluggable backends, intended to provide a straightforward API, allow use with tokio/async-std/smolctp/anything else, and to support all the standard UDP/DTLS/TCP/TLS transports.
+An asynchronous [CoAP](https://tools.ietf.org/html/rfc7252) client with pluggable backends, intended to provide a straightforward API, allow use with tokio/async-std/smolctp/anything else, to support all the standard UDP/DTLS/TCP/TLS transports, and eventually to work with `no_std`.
 
 There's also a little client utility that may be useful for working on CoAP things, installable via `cargo install coap-client` or by downloading pre-built images from the [releases](https://github.com/ryankurte/rust-coap-client/releases/latest) page.
 

@@ -2,9 +2,9 @@
 
 use std::convert::{TryFrom, TryInto};
 
-use structopt::StructOpt;
+use log::debug;
 use simplelog::{LevelFilter, SimpleLogger, TermLogger, TerminalMode};
-use log::{debug};
+use structopt::StructOpt;
 
 use coap_client::{ClientOptions, HostOptions, RequestOptions, TokioClient};
 
@@ -45,15 +45,15 @@ impl std::str::FromStr for HexData {
 #[derive(PartialEq, Clone, Debug, StructOpt)]
 pub struct Data {
     /// File  to read/write
-    #[structopt(long, group="d")]
+    #[structopt(long, group = "d")]
     pub file: Option<String>,
 
     /// UTF-8 String data to write
-    #[structopt(long, group="d")]
+    #[structopt(long, group = "d")]
     pub string: Option<String>,
 
     /// Hex encoded data to write
-    #[structopt(long, group="d")]
+    #[structopt(long, group = "d")]
     pub hex: Option<HexData>,
 }
 
@@ -112,18 +112,26 @@ async fn main() -> Result<(), anyhow::Error> {
 
     // Perform operation
     let resp = match &opts.command {
-        Command::Get => client.get(&opts.target.resource, &opts.request_opts).await?,
+        Command::Get => {
+            client
+                .get(&opts.target.resource, &opts.request_opts)
+                .await?
+        }
         Command::Put(data) => {
             let d: Option<Vec<u8>> = data.try_into()?;
-            client.put(&opts.target.resource, d.as_deref(), &opts.request_opts).await?
-        },
+            client
+                .put(&opts.target.resource, d.as_deref(), &opts.request_opts)
+                .await?
+        }
         Command::Post(data) => {
             let d: Option<Vec<u8>> = data.try_into()?;
-            client.post(&opts.target.resource, d.as_deref(), &opts.request_opts).await?
-        },
+            client
+                .post(&opts.target.resource, d.as_deref(), &opts.request_opts)
+                .await?
+        }
         Command::Observe => {
             unimplemented!()
-        },
+        }
     };
 
     // Display response

@@ -1,20 +1,18 @@
-
-use std::time::Duration;
-use std::convert::{TryInto, TryFrom};
+use std::convert::{TryFrom, TryInto};
 use std::str::FromStr;
+use std::time::Duration;
 
-use structopt::StructOpt;
 use log::{debug, error};
+use structopt::StructOpt;
 use strum_macros::{Display, EnumString, EnumVariantNames};
 
-use coap_lite::{CoapRequest, Packet, MessageType};
-pub use coap_lite::{RequestType as Method};
+pub use coap_lite::RequestType as Method;
+use coap_lite::{CoapRequest, MessageType, Packet};
 
 pub mod backend;
 pub use backend::Backend;
 
 pub const COAP_MTU: usize = 1600;
-
 
 #[derive(Debug, Clone, PartialEq, StructOpt)]
 pub struct ClientOptions {
@@ -77,7 +75,6 @@ impl Default for RequestOptions {
         }
     }
 }
-
 
 /// Supported transports / schemes
 #[derive(Clone, PartialEq, Debug, Display, EnumString, EnumVariantNames)]
@@ -171,7 +168,10 @@ impl TryFrom<&str> for HostOptions {
             Ok(v) => v,
             Err(e) => {
                 error!("Error parsing URL: {:?}", e);
-                return Err(std::io::Error::new(std::io::ErrorKind::Other, "Invalid Url"));
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    "Invalid Url",
+                ));
             }
         };
 
@@ -182,7 +182,10 @@ impl TryFrom<&str> for HostOptions {
             (_, Ok(v)) => v,
             (_, Err(_e)) => {
                 error!("Unrecognized or unsupported scheme: {}", params.scheme());
-                return Err(std::io::Error::new(std::io::ErrorKind::Other, "Invalid Scheme"));
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    "Invalid Scheme",
+                ));
             }
         };
 
@@ -196,7 +199,7 @@ impl TryFrom<&str> for HostOptions {
             (None, Transport::Tls) => 5684,
         };
 
-        Ok(HostOptions{
+        Ok(HostOptions {
             scheme,
             host: params.host_str().unwrap_or("localhost").to_string(),
             port,
@@ -204,7 +207,6 @@ impl TryFrom<&str> for HostOptions {
         })
     }
 }
-    
 
 /// Generic (async) CoAP client
 pub struct Client<T: Backend> {
@@ -218,7 +220,7 @@ pub type TokioClient = Client<backend::Tokio>;
 #[cfg(feature = "backend-tokio")]
 impl TokioClient {
     /// Create a new client with the provided host and client options
-    pub async fn connect<H>(host: H, opts: &ClientOptions) -> Result<Self, std::io::Error> 
+    pub async fn connect<H>(host: H, opts: &ClientOptions) -> Result<Self, std::io::Error>
     where
         H: TryInto<HostOptions>,
         <H as TryInto<HostOptions>>::Error: std::fmt::Debug,
@@ -228,7 +230,10 @@ impl TokioClient {
             Ok(v) => v,
             Err(e) => {
                 error!("Error parsing host options: {:?}", e);
-                return Err(std::io::Error::new(std::io::ErrorKind::Other, "Invalid host options"));
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    "Invalid host options",
+                ));
             }
         };
         let connect_str = format!("{}:{}", peer.host, peer.port);
@@ -244,8 +249,8 @@ impl TokioClient {
             }
         };
 
-       // Return client object
-       Ok(Self {
+        // Return client object
+        Ok(Self {
             message_id: rand::random(),
             transport,
         })
@@ -257,14 +262,19 @@ impl TokioClient {
     }
 }
 
-impl <T, E> Client<T>
-where 
-    T: Backend<Error=E>,
+impl<T, E> Client<T>
+where
+    T: Backend<Error = E>,
     E: std::fmt::Debug,
 {
     /// Perform a basic CoAP request
-    pub async fn request(&mut self, method: Method, resource: &str, data: Option<&[u8]>, opts: &RequestOptions) -> Result<Packet, Error<E>> {
-
+    pub async fn request(
+        &mut self,
+        method: Method,
+        resource: &str,
+        data: Option<&[u8]>,
+        opts: &RequestOptions,
+    ) -> Result<Packet, Error<E>> {
         // Build request object
         let mut request = CoapRequest::<&str>::new();
 
@@ -288,25 +298,42 @@ where
         request.message.set_token(token);
 
         // Send request via backing transport
-        let resp = self.transport.request(request.message, opts.clone()).await
+        let resp = self
+            .transport
+            .request(request.message, opts.clone())
+            .await
             .map_err(Error::Transport)?;
 
         // TODO: handle response error codes here...
-        
+
         Ok(resp)
     }
 
-    pub async fn get(&mut self, resource: &str, opts: &RequestOptions) -> Result<Vec<u8>, Error<E>> {
+    pub async fn get(
+        &mut self,
+        resource: &str,
+        opts: &RequestOptions,
+    ) -> Result<Vec<u8>, Error<E>> {
         let resp = self.request(Method::Get, resource, None, opts).await?;
         Ok(resp.payload)
     }
 
-    pub async fn put(&mut self, resource: &str, data: Option<&[u8]>, opts: &RequestOptions) -> Result<Vec<u8>, Error<E>> {
+    pub async fn put(
+        &mut self,
+        resource: &str,
+        data: Option<&[u8]>,
+        opts: &RequestOptions,
+    ) -> Result<Vec<u8>, Error<E>> {
         let resp = self.request(Method::Put, resource, data, opts).await?;
         Ok(resp.payload)
     }
 
-    pub async fn post(&mut self, resource: &str, data: Option<&[u8]>, opts: &RequestOptions) -> Result<Vec<u8>, Error<E>> {
+    pub async fn post(
+        &mut self,
+        resource: &str,
+        data: Option<&[u8]>,
+        opts: &RequestOptions,
+    ) -> Result<Vec<u8>, Error<E>> {
         let resp = self.request(Method::Post, resource, data, opts).await?;
         Ok(resp.payload)
     }
@@ -319,4 +346,3 @@ fn token_as_u32(token: &[u8]) -> u32 {
     }
     v
 }
-

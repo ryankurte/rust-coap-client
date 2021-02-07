@@ -2,7 +2,7 @@
 
 use coap_lite::Packet;
 
-use crate::{RequestOptions};
+use crate::RequestOptions;
 
 pub mod tokio_transport;
 pub use tokio_transport::Tokio;
@@ -16,4 +16,3 @@ pub trait Backend {
 
     async fn request(&mut self, req: Packet, opts: RequestOptions) -> Result<Packet, Self::Error>;
 }
-

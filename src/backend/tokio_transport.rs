@@ -1,21 +1,20 @@
-use std::net::SocketAddr;
-use std::io::{Error, ErrorKind};
 use std::collections::HashMap;
-use std::task::{Poll, Context};
+use std::io::{Error, ErrorKind};
+use std::net::SocketAddr;
 use std::pin::Pin;
+use std::task::{Context, Poll};
 
-use log::{trace, debug, error};
+use log::{debug, error, trace};
 
+use coap_lite::{CoapResponse, MessageClass, MessageType, Packet};
 
-use coap_lite::{CoapResponse, Packet, MessageType, MessageClass};
-
-use tokio::io::{ReadBuf, AsyncWriteExt, AsyncReadExt};
+use tokio::io::{AsyncReadExt, AsyncWriteExt, ReadBuf};
 use tokio::sync::mpsc::{channel, Sender};
 
-use openssl::ssl::{SslMethod, SslVerifyMode, SslFiletype};
+use openssl::ssl::{SslFiletype, SslMethod, SslVerifyMode};
 
 use super::Backend;
-use crate::{COAP_MTU, ClientOptions, RequestOptions};
+use crate::{ClientOptions, RequestOptions, COAP_MTU};
 
 pub struct Tokio {
     ctl_tx: Sender<Ctl>,
@@ -99,10 +98,7 @@ impl Tokio {
             Ok(())
         });
 
-        Ok(Self{
-            ctl_tx,
-            _listener,
-        })
+        Ok(Self { ctl_tx, _listener })
     }
 
     /// Helper for creating a DTLS client instance
@@ -132,7 +128,7 @@ impl Tokio {
         let ssl_ctx = ssl_builder.build();
 
         // Create SSL connection
-        let ssl_conn =  openssl::ssl::Ssl::new(&ssl_ctx).unwrap();
+        let ssl_conn = openssl::ssl::Ssl::new(&ssl_ctx).unwrap();
 
         // Wrap our socket stream in DTLS
         let mut dtls_stream = tokio_openssl::SslStream::new(ssl_conn, udp_stream).unwrap();
@@ -211,14 +207,15 @@ impl Tokio {
             Ok(())
         });
 
-        Ok(Self{
-            ctl_tx,
-            _listener,
-        })
+        Ok(Self { ctl_tx, _listener })
     }
 
     /// Helper for handling received data (transport-independent)
-    async fn handle_rx(handles: &mut HashMap<u32, Sender<Packet>>, data: &[u8], tx: Sender<Ctl>) -> Result<(), Error> {
+    async fn handle_rx(
+        handles: &mut HashMap<u32, Sender<Packet>>,
+        data: &[u8],
+        tx: Sender<Ctl>,
+    ) -> Result<(), Error> {
         // Decode packet
         let packet = match Packet::from_bytes(&data) {
             Ok(p) => p,
@@ -241,7 +238,7 @@ impl Tokio {
         let token = crate::token_as_u32(packet.get_token());
 
         // Lookup response handle
-        let handle = handles.get(&token).map(|v| v.clone() );
+        let handle = handles.get(&token).map(|v| v.clone());
 
         // Return to caller or respond with failure
         match handle {
@@ -253,7 +250,6 @@ impl Tokio {
 
                 // Send acknowlegement if required
                 if packet.header.get_type() == MessageType::Confirmable {
-
                     if let Some(mut ack) = CoapResponse::new(&packet) {
                         ack.message.header.code = MessageClass::Empty;
 
@@ -261,7 +257,7 @@ impl Tokio {
                         tx.send(Ctl::Send(encoded)).await.unwrap();
                     }
                 }
-            },
+            }
             None => {
                 debug!("Unhandled response: {:?}, sending reset", packet);
 
@@ -282,7 +278,6 @@ impl Tokio {
 
     /// Helper to create UDP connections
     async fn udp_connect(host: &str) -> Result<tokio::net::UdpSocket, Error> {
-
         // Resolve peer address to determine local socket type
         let peer_addr = tokio::net::lookup_host(host).await?.next();
         debug!("Using IP: {:?} for host: {}", peer_addr, host);
@@ -299,11 +294,10 @@ impl Tokio {
         let peer_addr = peer_addr.unwrap();
 
         // Bind to local socket
-        let udp_sock = tokio::net::UdpSocket::bind(bind_addr).await
-            .map_err(|e| {
-                error!("Error binding local socket: {:?}", e);
-                e
-            })?;
+        let udp_sock = tokio::net::UdpSocket::bind(bind_addr).await.map_err(|e| {
+            error!("Error binding local socket: {:?}", e);
+            e
+        })?;
 
         debug!("Bound to local socket: {}", udp_sock.local_addr()?);
 
@@ -321,10 +315,8 @@ impl Tokio {
         match self.ctl_tx.send(Ctl::Exit).await {
             Ok(_) => {
                 self._listener.await??;
-            },
-            Err(_) => {
-                self._listener.abort()
-            },
+            }
+            Err(_) => self._listener.abort(),
         }
 
         Ok(())
@@ -366,12 +358,12 @@ impl Backend for Tokio {
                 Ok(Some(v)) => {
                     resp = Ok(Some(v));
                     break;
-                },
+                }
                 Ok(None) | Err(_) => {
                     debug!("Timeout awaiting response (retry {})", i);
                     // TODO: await backoff
                     continue;
-                },
+                }
             };
         }
 
@@ -397,7 +389,7 @@ pub struct UdpStream {
 
 impl From<tokio::net::UdpSocket> for UdpStream {
     fn from(socket: tokio::net::UdpSocket) -> Self {
-        Self{ socket }
+        Self { socket }
     }
 }
 
@@ -408,7 +400,7 @@ impl std::io::Read for UdpStream {
 }
 
 impl std::io::Write for UdpStream {
-    fn write(&mut self, buff: &[u8]) -> std::result::Result<usize, std::io::Error> { 
+    fn write(&mut self, buff: &[u8]) -> std::result::Result<usize, std::io::Error> {
         self.socket.try_send(buff)
     }
 
@@ -418,7 +410,11 @@ impl std::io::Write for UdpStream {
 }
 
 impl tokio::io::AsyncRead for UdpStream {
-    fn poll_read(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut ReadBuf<'_>) -> Poll<Result<(), std::io::Error>> {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<Result<(), std::io::Error>> {
         match self.socket.poll_recv(cx, buf) {
             Poll::Ready(Ok(_n)) => Poll::Ready(Ok(())),
             Poll::Ready(Err(e)) => Poll::Ready(Err(e)),
@@ -428,7 +424,11 @@ impl tokio::io::AsyncRead for UdpStream {
 }
 
 impl tokio::io::AsyncWrite for UdpStream {
-    fn poll_write(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8]) -> Poll<Result<usize, std::io::Error>> {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<Result<usize, std::io::Error>> {
         self.socket.poll_send(cx, buf)
     }
 
@@ -436,24 +436,31 @@ impl tokio::io::AsyncWrite for UdpStream {
         Poll::Ready(Ok(()))
     }
 
-    fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), std::io::Error>> {
+    fn poll_shutdown(
+        self: Pin<&mut Self>,
+        _cx: &mut Context<'_>,
+    ) -> Poll<Result<(), std::io::Error>> {
         Poll::Ready(Ok(()))
     }
 }
 
-
 #[cfg(test)]
 mod test {
-    use simplelog::{SimpleLogger, Config, LevelFilter};
     use crate::{ClientOptions, RequestOptions, TokioClient};
+    use simplelog::{Config, LevelFilter, SimpleLogger};
 
     #[tokio::test]
     async fn test_get_udp() {
         let _ = SimpleLogger::init(LevelFilter::Debug, Config::default());
 
-        let mut client = TokioClient::connect("coap://coap.me:5683", &ClientOptions::default()).await.unwrap();
+        let mut client = TokioClient::connect("coap://coap.me:5683", &ClientOptions::default())
+            .await
+            .unwrap();
 
-        let resp = client.get("hello", RequestOptions::default()).await.unwrap();
+        let resp = client
+            .get("hello", RequestOptions::default())
+            .await
+            .unwrap();
         assert_eq!(resp, b"world".to_vec());
     }
 
@@ -462,9 +469,14 @@ mod test {
     async fn test_get_dtls() {
         let _ = SimpleLogger::init(LevelFilter::Debug, Config::default());
 
-        let mut client = TokioClient::connect("coaps://coap.me:5683", &ClientOptions::default()).await.unwrap();
+        let mut client = TokioClient::connect("coaps://coap.me:5683", &ClientOptions::default())
+            .await
+            .unwrap();
 
-        let resp = client.get("hello", RequestOptions::default()).await.unwrap();
+        let resp = client
+            .get("hello", RequestOptions::default())
+            .await
+            .unwrap();
         assert_eq!(resp, b"world".to_vec());
     }
 }

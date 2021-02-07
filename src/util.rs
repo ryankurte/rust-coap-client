@@ -24,6 +24,10 @@ pub struct Options {
     #[structopt(subcommand)]
     pub command: Command,
 
+    #[structopt(long, default_value = "1")]
+    /// Repeat command N times
+    pub repeat: usize,
+
     #[structopt(long = "log-level", default_value = "info")]
     /// Configure app logging levels (warn, info, debug, trace)
     pub log_level: LevelFilter,
@@ -110,34 +114,38 @@ async fn main() -> Result<(), anyhow::Error> {
 
     debug!("Connected, executing command");
 
-    // Perform operation
-    let resp = match &opts.command {
-        Command::Get => {
-            client
-                .get(&opts.target.resource, &opts.request_opts)
-                .await?
-        }
-        Command::Put(data) => {
-            let d: Option<Vec<u8>> = data.try_into()?;
-            client
-                .put(&opts.target.resource, d.as_deref(), &opts.request_opts)
-                .await?
-        }
-        Command::Post(data) => {
-            let d: Option<Vec<u8>> = data.try_into()?;
-            client
-                .post(&opts.target.resource, d.as_deref(), &opts.request_opts)
-                .await?
-        }
-        Command::Observe => {
-            unimplemented!()
-        }
-    };
+    for i in 0..opts.repeat {
+        // Perform operation
+        let resp = match &opts.command {
+            Command::Get => {
+                client
+                    .get(&opts.target.resource, &opts.request_opts)
+                    .await?
+            }
+            Command::Put(data) => {
+                let d: Option<Vec<u8>> = data.try_into()?;
+                client
+                    .put(&opts.target.resource, d.as_deref(), &opts.request_opts)
+                    .await?
+            }
+            Command::Post(data) => {
+                let d: Option<Vec<u8>> = data.try_into()?;
+                client
+                    .post(&opts.target.resource, d.as_deref(), &opts.request_opts)
+                    .await?
+            }
+            Command::Observe => {
+                // TODO: implement and run observe
+                unimplemented!()
+            }
+        };
 
-    // Display response
-    match std::str::from_utf8(&resp) {
-        Ok(s) => println!("{}", s),
-        Err(_) => println!("{:02x?}", resp),
+        // Display response
+        // TODO: accept data options here (string, hex, write-to-file)
+        match std::str::from_utf8(&resp) {
+            Ok(s) => println!("{}", s),
+            Err(_) => println!("{:02x?}", resp),
+        }
     }
 
     // Close client

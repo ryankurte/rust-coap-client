@@ -4,8 +4,11 @@ use coap_lite::Packet;
 
 use crate::RequestOptions;
 
-pub mod tokio_transport;
-pub use tokio_transport::Tokio;
+#[cfg(feature = "backend-tokio")]
+pub mod backend_tokio;
+
+#[cfg(feature = "backend-tokio")]
+pub use backend_tokio::Tokio;
 
 /// Generic transport trait for implementing CoAP client backends
 // TODO: swap this to an associated future type so it's box-free,

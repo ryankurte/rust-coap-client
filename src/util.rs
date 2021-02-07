@@ -114,7 +114,7 @@ async fn main() -> Result<(), anyhow::Error> {
 
     debug!("Connected, executing command");
 
-    for i in 0..opts.repeat {
+    for _i in 0..opts.repeat {
         // Perform operation
         let resp = match &opts.command {
             Command::Get => {

@@ -6,18 +6,16 @@ use std::collections::HashMap;
 use std::io::{Error, ErrorKind};
 use std::net::SocketAddr;
 
-use log::{debug, error};
 use coap_lite::{CoapResponse, MessageClass, MessageType, Packet};
+use log::{debug, error};
 
 use tokio::sync::mpsc::{channel, Sender};
 
-
 use super::Backend;
-use crate::{RequestOptions};
+use crate::RequestOptions;
 
-
-mod udp;
 mod dtls;
+mod udp;
 
 /// Tokio backend for coap-client
 pub struct Tokio {
@@ -34,7 +32,6 @@ enum Ctl {
 }
 
 impl Tokio {
-
     /// Helper for handling received data (transport-independent)
     async fn handle_rx(
         handles: &mut HashMap<u32, Sender<Packet>>,

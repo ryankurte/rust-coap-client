@@ -7,7 +7,6 @@ use std::io::{Error, ErrorKind};
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-
 use log::{debug, error, trace};
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt, ReadBuf};
@@ -15,10 +14,8 @@ use tokio::sync::mpsc::channel;
 
 use openssl::ssl::{SslFiletype, SslMethod, SslVerifyMode};
 
-
+use super::{Ctl, Tokio};
 use crate::{ClientOptions, COAP_MTU};
-use super::{Tokio, Ctl};
-
 
 impl Tokio {
     /// Helper for creating a DTLS client instance
@@ -130,7 +127,6 @@ impl Tokio {
         Ok(Self { ctl_tx, _listener })
     }
 }
-
 
 /// UdpStream wrapper for DTLS compatibility
 pub struct UdpStream {

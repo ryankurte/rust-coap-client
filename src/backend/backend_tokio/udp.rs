@@ -9,10 +9,8 @@ use log::{debug, error, trace};
 
 use tokio::sync::mpsc::channel;
 
-
-use crate::{COAP_MTU};
-use super::{Tokio, Ctl};
-
+use super::{Ctl, Tokio};
+use crate::COAP_MTU;
 
 impl Tokio {
     // Helper for creating a UDP client instance

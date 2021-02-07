@@ -1,4 +1,6 @@
 //! A simple async CoAP client
+// https://github.com/ryankurte/rust-coap-client
+// Copyright 2021 ryan kurte <ryan@kurte.nz>
 
 use std::convert::{TryFrom, TryInto};
 

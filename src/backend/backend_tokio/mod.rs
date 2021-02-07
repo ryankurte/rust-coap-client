@@ -1,4 +1,6 @@
-//! Tokio based backend for coap-client.
+//! Tokio based backends for coap-client.
+// https://github.com/ryankurte/rust-coap-client
+// Copyright 2021 ryan kurte <ryan@kurte.nz>
 
 use std::collections::HashMap;
 use std::io::{Error, ErrorKind};

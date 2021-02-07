@@ -1,3 +1,7 @@
+//! UDP implementation for the Tokio backend
+// https://github.com/ryankurte/rust-coap-client
+// Copyright 2021 ryan kurte <ryan@kurte.nz>
+
 use std::collections::HashMap;
 use std::io::Error;
 

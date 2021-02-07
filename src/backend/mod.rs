@@ -1,4 +1,6 @@
 //! Backend module provides swappable CoAP client backends
+// https://github.com/ryankurte/rust-coap-client
+// Copyright 2021 ryan kurte <ryan@kurte.nz>
 
 use coap_lite::Packet;
 

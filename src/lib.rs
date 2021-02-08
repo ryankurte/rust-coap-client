@@ -1,4 +1,8 @@
-use std::convert::{TryFrom, TryInto};
+/// Rust Async CoAP Client
+// https://github.com/ryankurte/rust-coap-client
+// Copyright 2021 ryan kurte <ryan@kurte.nz>
+
+use std::{convert::{TryFrom, TryInto}, marker::PhantomData};
 use std::str::FromStr;
 use std::time::Duration;
 
@@ -7,7 +11,7 @@ use structopt::StructOpt;
 use strum_macros::{Display, EnumString, EnumVariantNames};
 
 pub use coap_lite::RequestType as Method;
-use coap_lite::{CoapRequest, MessageType, Packet};
+use coap_lite::{CoapRequest, MessageType, Packet, ResponseType};
 
 pub mod backend;
 pub use backend::Backend;
@@ -209,13 +213,13 @@ impl TryFrom<&str> for HostOptions {
 }
 
 /// Generic (async) CoAP client
-pub struct Client<T: Backend> {
-    message_id: u16,
+pub struct Client<E, T: Backend<E>> {
     transport: T,
+    _e: PhantomData<E>
 }
 
 #[cfg(feature = "backend-tokio")]
-pub type TokioClient = Client<backend::Tokio>;
+pub type TokioClient = Client<std::io::Error, backend::Tokio>;
 
 #[cfg(feature = "backend-tokio")]
 impl TokioClient {
@@ -251,8 +255,8 @@ impl TokioClient {
 
         // Return client object
         Ok(Self {
-            message_id: rand::random(),
             transport,
+            _e: PhantomData,
         })
     }
 
@@ -262,9 +266,9 @@ impl TokioClient {
     }
 }
 
-impl<T, E> Client<T>
+impl<E, T> Client<E, T>
 where
-    T: Backend<Error = E>,
+    T: Backend<E>,
     E: std::fmt::Debug,
 {
     /// Perform a basic CoAP request
@@ -278,8 +282,7 @@ where
         // Build request object
         let mut request = CoapRequest::<&str>::new();
 
-        request.message.header.message_id = self.message_id;
-        self.message_id += 1;
+        request.message.header.message_id = rand::random();
 
         request.set_method(method);
         request.set_path(resource);
@@ -309,6 +312,21 @@ where
         Ok(resp)
     }
 
+    /// Observe the provided resource
+    pub async fn observe(
+        &mut self,
+        resource: &str,
+        opts: &RequestOptions,
+    ) -> <T as Backend<E>>::Observe {
+        self.transport.observe(resource.to_string(), opts.clone())
+    }
+
+    /// Deregister an observation
+    pub async fn unobserve(&mut self, o: <T as Backend<E>>::Observe) -> Result<(), E> {
+        self.transport.unobserve(o).await
+    }
+
+    /// Perform a Get request from the provided resource
     pub async fn get(
         &mut self,
         resource: &str,
@@ -318,6 +336,7 @@ where
         Ok(resp.payload)
     }
 
+    /// Perform a Put request to the provided resource
     pub async fn put(
         &mut self,
         resource: &str,
@@ -328,6 +347,7 @@ where
         Ok(resp.payload)
     }
 
+    /// Perform a Post request to the provided resource
     pub async fn post(
         &mut self,
         resource: &str,
@@ -337,12 +357,20 @@ where
         let resp = self.request(Method::Post, resource, data, opts).await?;
         Ok(resp.payload)
     }
+
 }
 
 fn token_as_u32(token: &[u8]) -> u32 {
-    let mut v = 0;
-    for i in 0..token.len() {
-        v |= (token[i] as u32) << (i * 8);
+    let mut b = [0u8; 4];
+    b.copy_from_slice(token);
+    u32::from_be_bytes(b)
+}
+
+fn status_is_ok(status: ResponseType) -> bool {
+    use ResponseType::*;
+
+    match status {
+        Created | Deleted | Valid | Changed | Content | Continue => true,
+        _ => false,
     }
-    v
 }

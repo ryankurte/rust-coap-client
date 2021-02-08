@@ -42,6 +42,8 @@ jobs:
   build:
     name: Build
     runs-on: ${{ matrix.os }}
+    env:
+      VCPKG_BINARY_SOURCES: 'clear;files,C:\vcpkg\archives,readwrite'
 
     strategy:
       fail-fast: false
@@ -71,20 +73,29 @@ jobs:
         target:  ${{ matrix.target }}
         override: true
     
-    - name: Configure cargo caching 
+    - name: Configure linux caching
+      if: ${{ matrix.os != 'windows-latest' }}
       uses: actions/cache@v2
       with:
         key: ${{ matrix.os }}-${{ matrix.target }}
         path: |
-          ${{ env.HOME }}/.cargo"
-          target
+          ./target
+          /usr/share/rust/.cargo/.cargo/bin
+          /usr/share/rust/.cargo/.cargo/registry/index
+          /usr/share/rust/.cargo/.cargo/registry/cache
+          /usr/share/rust/.cargo/.cargo/git/db
     
-    - name: Configure vcpkg caching
+    - name: Configure windows caching
       if: ${{ matrix.os == 'windows-latest' }}
       uses: actions/cache@v2
       with:
         key: ${{ matrix.os }}-${{ matrix.target }}
-        path: C:/vcpkg
+        path: |
+          C:\vcpkg\archives
+          C:\Rust\.cargo\bin
+          C:\Rust\.cargo\registry\index
+          C:\Rust\.cargo\registry\cache
+          C:\Rust\.cargo\git\db
 
     - name: Install openssl (apt armv7)
       if: ${{ matrix.target == 'armv7-unknown-linux-gnueabihf' }}

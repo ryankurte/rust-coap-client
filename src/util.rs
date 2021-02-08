@@ -4,7 +4,8 @@
 
 use std::convert::{TryFrom, TryInto};
 
-use log::debug;
+use futures::StreamExt;
+use log::{debug, error, info};
 use simplelog::{LevelFilter, SimpleLogger, TermLogger, TerminalMode};
 use structopt::StructOpt;
 
@@ -116,37 +117,67 @@ async fn main() -> Result<(), anyhow::Error> {
 
     debug!("Connected, executing command");
 
-    for _i in 0..opts.repeat {
-        // Perform operation
-        let resp = match &opts.command {
-            Command::Get => {
-                client
-                    .get(&opts.target.resource, &opts.request_opts)
-                    .await?
-            }
-            Command::Put(data) => {
-                let d: Option<Vec<u8>> = data.try_into()?;
-                client
-                    .put(&opts.target.resource, d.as_deref(), &opts.request_opts)
-                    .await?
-            }
-            Command::Post(data) => {
-                let d: Option<Vec<u8>> = data.try_into()?;
-                client
-                    .post(&opts.target.resource, d.as_deref(), &opts.request_opts)
-                    .await?
-            }
-            Command::Observe => {
-                // TODO: implement and run observe
-                unimplemented!()
-            }
-        };
+    // Run observation
+    if let Command::Observe = &opts.command {
+        // Create observer
+        let mut o = client
+            .observe(&opts.target.resource, &opts.request_opts)
+            .await;
 
-        // Display response
-        // TODO: accept data options here (string, hex, write-to-file)
-        match std::str::from_utf8(&resp) {
-            Ok(s) => println!("{}", s),
-            Err(_) => println!("{:02x?}", resp),
+        // Await messages
+        loop {
+            tokio::select! {
+                r = o.next() => {
+                    match r {
+                        Some(Ok(d)) => {
+                            debug!("Observe RX: {:?}", d);
+                            display_resp(&d.payload)
+                        },
+                        Some(Err(e)) => {
+                            error!("Observe error: {:?}", e);
+                            break;
+                        },
+                        None => {
+                            info!("Observe channel closed");
+                            break;
+                        }
+                    }
+                },
+                _ = tokio::signal::ctrl_c() => {
+                    break;
+                }
+            }
+        }
+
+        // Destroy observer
+        client.unobserve(o).await?;
+
+    // Perform basic commands
+    } else {
+        for _i in 0..opts.repeat {
+            match &opts.command {
+                Command::Get => {
+                    let r = client
+                        .get(&opts.target.resource, &opts.request_opts)
+                        .await?;
+                    display_resp(&r);
+                }
+                Command::Put(data) => {
+                    let d: Option<Vec<u8>> = data.try_into()?;
+                    let r = client
+                        .put(&opts.target.resource, d.as_deref(), &opts.request_opts)
+                        .await?;
+                    display_resp(&r);
+                }
+                Command::Post(data) => {
+                    let d: Option<Vec<u8>> = data.try_into()?;
+                    let r = client
+                        .post(&opts.target.resource, d.as_deref(), &opts.request_opts)
+                        .await?;
+                    display_resp(&r);
+                }
+                _ => (),
+            };
         }
     }
 
@@ -156,4 +187,14 @@ async fn main() -> Result<(), anyhow::Error> {
     }
 
     Ok(())
+}
+
+// Display response
+// TODO: accept data options here (string, hex, write-to-file)
+fn display_resp(d: &[u8]) {
+    match std::str::from_utf8(&d) {
+        Ok(s) if s.len() > 0 => println!("Received: {}", s),
+        Err(_) if d.len() > 0 => println!("Received: {:02x?}", d),
+        _ => (),
+    }
 }

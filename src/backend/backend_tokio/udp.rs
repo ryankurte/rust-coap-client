@@ -35,11 +35,11 @@ impl Tokio {
                     ctl = ctl_rx.recv() => {
                         match ctl {
                             Some(Ctl::Register(token, rx)) => {
-                                debug!("Register handler: {}", token);
+                                debug!("Register handler: {:x}", token);
                                 handles.insert(token, rx);
                             },
                             Some(Ctl::Deregister(token)) => {
-                                debug!("Deregister handler: {}", token);
+                                debug!("Deregister handler: {:x}", token);
                                 handles.remove(&token);
                             },
                             Some(Ctl::Send(data)) => {

@@ -84,7 +84,7 @@ jobs:
       uses: actions/cache@v2
       with:
         key: ${{ matrix.os }}-${{ matrix.target }}
-        path: C:/vcpkg
+        path: ${{ env.HOME }}/vcpkg/archives
 
     - name: Install openssl (apt armv7)
       if: ${{ matrix.target == 'armv7-unknown-linux-gnueabihf' }}

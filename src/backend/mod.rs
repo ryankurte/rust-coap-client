@@ -2,8 +2,8 @@
 // https://github.com/ryankurte/rust-coap-client
 // Copyright 2021 ryan kurte <ryan@kurte.nz>
 
+use coap_lite::Packet;
 use futures::{Future, Stream};
-use coap_lite::{Packet};
 
 use crate::RequestOptions;
 

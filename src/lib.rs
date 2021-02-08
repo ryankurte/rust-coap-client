@@ -1,10 +1,12 @@
+use std::str::FromStr;
+use std::time::Duration;
 /// Rust Async CoAP Client
 // https://github.com/ryankurte/rust-coap-client
 // Copyright 2021 ryan kurte <ryan@kurte.nz>
-
-use std::{convert::{TryFrom, TryInto}, marker::PhantomData};
-use std::str::FromStr;
-use std::time::Duration;
+use std::{
+    convert::{TryFrom, TryInto},
+    marker::PhantomData,
+};
 
 use log::{debug, error};
 use structopt::StructOpt;
@@ -215,7 +217,7 @@ impl TryFrom<&str> for HostOptions {
 /// Generic (async) CoAP client
 pub struct Client<E, T: Backend<E>> {
     transport: T,
-    _e: PhantomData<E>
+    _e: PhantomData<E>,
 }
 
 #[cfg(feature = "backend-tokio")]
@@ -357,7 +359,6 @@ where
         let resp = self.request(Method::Post, resource, data, opts).await?;
         Ok(resp.payload)
     }
-
 }
 
 fn token_as_u32(token: &[u8]) -> u32 {

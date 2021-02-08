@@ -4,8 +4,8 @@
 
 use std::convert::{TryFrom, TryInto};
 
-use futures::{StreamExt};
-use log::{debug, info, error};
+use futures::StreamExt;
+use log::{debug, error, info};
 use simplelog::{LevelFilter, SimpleLogger, TermLogger, TerminalMode};
 use structopt::StructOpt;
 
@@ -120,7 +120,9 @@ async fn main() -> Result<(), anyhow::Error> {
     // Run observation
     if let Command::Observe = &opts.command {
         // Create observer
-        let mut o = client.observe(&opts.target.resource, &opts.request_opts).await;
+        let mut o = client
+            .observe(&opts.target.resource, &opts.request_opts)
+            .await;
 
         // Await messages
         loop {
@@ -173,8 +175,8 @@ async fn main() -> Result<(), anyhow::Error> {
                         .post(&opts.target.resource, d.as_deref(), &opts.request_opts)
                         .await?;
                     display_resp(&r);
-                },
-                _ => ()
+                }
+                _ => (),
             };
         }
     }

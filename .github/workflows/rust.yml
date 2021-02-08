@@ -56,7 +56,7 @@ jobs:
             os: macos-latest
             output: coap-client
           - target: armv7-unknown-linux-gnueabihf 
-            os: ubuntu-20.04
+            os: ubuntu-latest
             output: coap-client
           - target: x86_64-pc-windows-msvc
             os: windows-latest

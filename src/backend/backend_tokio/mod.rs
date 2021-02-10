@@ -8,7 +8,9 @@ use std::net::SocketAddr;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-use coap_lite::{CoapOption, CoapResponse, MessageClass, MessageType, ObserveOption, Packet, RequestType, ResponseType};
+use coap_lite::{
+    CoapOption, MessageClass, MessageType, ObserveOption, Packet, RequestType, ResponseType,
+};
 use futures::{Future, FutureExt, Stream};
 use log::{debug, error};
 
@@ -398,8 +400,7 @@ impl<T> Future for TokioRequest<T> {
     }
 }
 
-unsafe impl <T> Send for TokioRequest<T> {}
-
+unsafe impl<T> Send for TokioRequest<T> {}
 
 pub struct TokioObserve {
     token: u32,

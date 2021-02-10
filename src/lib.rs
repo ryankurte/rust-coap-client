@@ -59,16 +59,16 @@ impl Default for ClientOptions {
 pub struct RequestOptions {
     #[structopt(long)]
     /// Disable message acknowlegement
-    non_confirmable: bool,
+    pub non_confirmable: bool,
     #[structopt(long, default_value = "3")]
     /// Number of retries (for acknowleged messages)
-    retries: usize,
+    pub retries: usize,
     #[structopt(long, parse(try_from_str = humantime::parse_duration), default_value = "2s")]
     /// Request -> response timeout
-    timeout: Duration,
+    pub timeout: Duration,
     #[structopt(long, parse(try_from_str = humantime::parse_duration), default_value = "500ms")]
     /// Base period for exponential backoff
-    backoff: Duration,
+    pub backoff: Duration,
 }
 
 impl Default for RequestOptions {
@@ -269,8 +269,7 @@ impl TokioClient {
 }
 
 /// Mark clients as Send if the backend is
-unsafe impl <E, B: Backend<E> + Send> Send for Client<E, B> {}
-
+unsafe impl<E, B: Backend<E> + Send> Send for Client<E, B> {}
 
 impl<E, T> Client<E, T>
 where

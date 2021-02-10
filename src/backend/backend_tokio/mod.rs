@@ -8,9 +8,7 @@ use std::net::SocketAddr;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-use coap_lite::{
-    CoapOption, CoapResponse, MessageClass, MessageType, ObserveOption, Packet, RequestType,
-};
+use coap_lite::{CoapOption, CoapResponse, MessageClass, MessageType, ObserveOption, Packet, RequestType, ResponseType};
 use futures::{Future, FutureExt, Stream};
 use log::{debug, error};
 
@@ -89,13 +87,16 @@ impl Tokio {
 
         // Send acknowlegement if required
         if packet.header.get_type() == MessageType::Confirmable {
-            if let Some(mut ack) = CoapResponse::new(&packet) {
-                debug!("Sending ACK for message: {}", packet.header.message_id);
-                ack.message.header.code = MessageClass::Empty;
+            debug!("Sending ACK for message: {}", packet.header.message_id);
 
-                let encoded = ack.message.to_bytes().unwrap();
-                tx.send(Ctl::Send(encoded)).await.unwrap();
-            }
+            let mut ack = Packet::new();
+            ack.header.message_id = packet.header.message_id;
+            ack.header.code = MessageClass::Response(ResponseType::Content);
+            ack.header.set_type(MessageType::Acknowledgement);
+            ack.set_token(packet.get_token().to_vec());
+
+            let encoded = ack.to_bytes().unwrap();
+            tx.send(Ctl::Send(encoded)).await.unwrap();
         }
 
         debug!(

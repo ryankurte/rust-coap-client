@@ -173,7 +173,7 @@ impl TryFrom<&str> for HostOptions {
         let params = match url::Url::from_str(url) {
             Ok(v) => v,
             Err(e) => {
-                error!("Error parsing URL: {:?}", e);
+                error!("Error parsing URL '{}': {:?}", url, e);
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::Other,
                     "Invalid Url",
@@ -268,6 +268,10 @@ impl TokioClient {
     }
 }
 
+/// Mark clients as Send if the backend is
+unsafe impl <E, B: Backend<E> + Send> Send for Client<E, B> {}
+
+
 impl<E, T> Client<E, T>
 where
     T: Backend<E>,
@@ -299,7 +303,7 @@ where
         }
 
         let t = rand::random::<u32>();
-        let token = t.to_be_bytes().to_vec();
+        let token = t.to_le_bytes().to_vec();
         request.message.set_token(token);
 
         // Send request via backing transport
@@ -362,9 +366,13 @@ where
 }
 
 fn token_as_u32(token: &[u8]) -> u32 {
-    let mut b = [0u8; 4];
-    b.copy_from_slice(token);
-    u32::from_be_bytes(b)
+    let mut v = 0;
+
+    for i in 0..token.len() {
+        v |= (token[i] as u32) << (i * 8);
+    }
+
+    v
 }
 
 fn status_is_ok(status: ResponseType) -> bool {

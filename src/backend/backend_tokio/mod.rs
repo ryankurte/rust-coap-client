@@ -62,7 +62,8 @@ impl Tokio {
         };
 
         // Fetch token from packet
-        let token = crate::token_as_u32(packet.get_token());
+        let raw_token = packet.get_token();
+        let token = crate::token_as_u32(raw_token);
 
         debug!("Received packet: {:x?}", packet);
 
@@ -243,7 +244,7 @@ impl Tokio {
         register.header.message_id = rand::random();
         register.header.code = MessageClass::Request(RequestType::Get);
         register.header.set_type(MessageType::Confirmable);
-        register.set_token(token.to_be_bytes().to_vec());
+        register.set_token(token.to_le_bytes().to_vec());
 
         let res = resource.trim_start_matches("/");
         register.add_option(CoapOption::UriPath, res.as_bytes().to_vec());
@@ -315,7 +316,7 @@ impl Tokio {
             deregister.header.message_id = rand::random();
             deregister.header.code = MessageClass::Request(RequestType::Get);
             deregister.header.set_type(MessageType::Confirmable);
-            deregister.set_token(token.to_be_bytes().to_vec());
+            deregister.set_token(token.to_le_bytes().to_vec());
 
             let res = resource.trim_start_matches("/");
             deregister.add_option(CoapOption::UriPath, res.as_bytes().to_vec());
@@ -396,11 +397,16 @@ impl<T> Future for TokioRequest<T> {
     }
 }
 
+unsafe impl <T> Send for TokioRequest<T> {}
+
+
 pub struct TokioObserve {
     token: u32,
     resource: String,
     inner: ObserveState,
 }
+
+unsafe impl Send for TokioObserve {}
 
 pub enum ObserveState {
     Init(Pin<Box<dyn Future<Output = Result<(u32, Receiver<Packet>), Error>>>>),

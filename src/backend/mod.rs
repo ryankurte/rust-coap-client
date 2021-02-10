@@ -11,9 +11,9 @@ use crate::RequestOptions;
 pub mod backend_tokio;
 
 #[cfg(feature = "backend-tokio")]
-pub use backend_tokio::Tokio;
+pub use backend_tokio::{Tokio, TokioObserve};
 
-pub trait Observer<E>: Stream<Item = Result<Packet, E>> {
+pub trait Observer<E>: Stream<Item = Result<Packet, E>> + Send {
     /// Fetch the observer token
     fn token(&self) -> u32;
     /// Fetch the observer resource
@@ -21,10 +21,10 @@ pub trait Observer<E>: Stream<Item = Result<Packet, E>> {
 }
 
 /// Generic transport trait for implementing CoAP client backends
-pub trait Backend<E> {
-    type Request: Future<Output = Result<Packet, E>>;
+pub trait Backend<E>: Send {
+    type Request: Future<Output = Result<Packet, E>> + Send;
     type Observe: Observer<E>;
-    type Unobserve: Future<Output = Result<(), E>>;
+    type Unobserve: Future<Output = Result<(), E>> + Send;
 
     fn request(&mut self, req: Packet, opts: RequestOptions) -> Self::Request;
 

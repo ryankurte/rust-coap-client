@@ -2,7 +2,7 @@
 name = "coap-client"
 description = "A CoAP client"
 readme = "README.md"
-version = "0.2.0"
+version = "0.2.1"
 authors = ["ryan <ryan@kurte.nz>"]
 repository = "https://github.com/ryankurte/rust-coap-client"
 license = "MPL-2.0"

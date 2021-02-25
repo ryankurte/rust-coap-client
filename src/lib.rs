@@ -20,6 +20,7 @@ pub use backend::Backend;
 
 pub const COAP_MTU: usize = 1600;
 
+/// Client connection options
 #[derive(Debug, Clone, PartialEq, StructOpt)]
 pub struct ClientOptions {
     #[structopt(long, parse(try_from_str = humantime::parse_duration), default_value = "500ms")]
@@ -55,6 +56,7 @@ impl Default for ClientOptions {
     }
 }
 
+/// Request options, for configuring CoAP requests
 #[derive(Debug, Clone, PartialEq, StructOpt)]
 pub struct RequestOptions {
     #[structopt(long)]
@@ -85,11 +87,15 @@ impl Default for RequestOptions {
 /// Supported transports / schemes
 #[derive(Clone, PartialEq, Debug, Display, EnumString, EnumVariantNames)]
 pub enum Transport {
+    /// Basic UDP transport
     #[strum(serialize = "udp", serialize = "coap")]
     Udp,
+    /// Datagram TLS over UDP
     #[strum(serialize = "dtls", serialize = "coaps")]
     Dtls,
+    /// Basic TLS transport
     Tcp,
+    /// TLS over TCP
     Tls,
 }
 
@@ -214,12 +220,13 @@ impl TryFrom<&str> for HostOptions {
     }
 }
 
-/// Generic (async) CoAP client
+/// Async CoAP client, generic over Backend implementations
 pub struct Client<E, T: Backend<E>> {
     transport: T,
     _e: PhantomData<E>,
 }
 
+/// Tokio base CoAP client
 #[cfg(feature = "backend-tokio")]
 pub type TokioClient = Client<std::io::Error, backend::Tokio>;
 

@@ -267,14 +267,10 @@ impl Tokio {
                 // Technically the server should respond with an empty observe...
                 // however libcoap does not appear to do this
                 // https://tools.ietf.org/html/rfc7641#section-3.1
-                let ok = match v.get_observe() {
-                    None => true,
-                    Some(o) if o.len() == 0 => true,
-                    Some(o) if o[0] == 0 => true,
-                    _ => false,
-                };
+                let obs = v.get_observe();
+                debug!("Observe response: {:02x?}", obs);
 
-                if ok {
+                if obs.is_some() {
                     debug!("Registered observer!");
 
                     // TODO: Forward response if it's valid GET data

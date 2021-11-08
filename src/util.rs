@@ -122,7 +122,7 @@ async fn main() -> Result<(), anyhow::Error> {
         // Create observer
         let mut o = client
             .observe(&opts.target.resource, &opts.request_opts)
-            .await;
+            .await?;
 
         // Await messages
         loop {

@@ -354,7 +354,6 @@ impl Tokio {
             }
         }
 
-
         // De-register local handler
         if let Err(e) = ctl_tx.try_send(Ctl::Deregister(token)) {
             debug!("Error sending deregister command: {:?}", e)
@@ -406,7 +405,6 @@ pub struct TokioObserve {
 
 unsafe impl Send for TokioObserve {}
 
-
 impl Observer<Error> for TokioObserve {
     fn token(&self) -> u32 {
         self.token
@@ -433,16 +431,24 @@ impl Stream for TokioObserve {
 impl Backend<std::io::Error> for Tokio {
     type Observe = TokioObserve;
 
-    async fn request(&mut self, req: Packet, opts: RequestOptions) -> Result<Packet, std::io::Error> {
+    async fn request(
+        &mut self,
+        req: Packet,
+        opts: RequestOptions,
+    ) -> Result<Packet, std::io::Error> {
         Tokio::do_request(self.ctl_tx.clone(), req, opts).await
     }
 
-    async fn observe(&mut self, resource: String, opts: RequestOptions) -> Result<Self::Observe, std::io::Error> {
+    async fn observe(
+        &mut self,
+        resource: String,
+        opts: RequestOptions,
+    ) -> Result<Self::Observe, std::io::Error> {
         let (token, rx) = Tokio::do_observe(self.ctl_tx.clone(), resource.clone(), opts).await?;
         Ok(TokioObserve {
             token,
             resource,
-            rx
+            rx,
         })
     }
 

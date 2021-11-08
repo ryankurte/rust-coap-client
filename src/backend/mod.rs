@@ -2,8 +2,8 @@
 // https://github.com/ryankurte/rust-coap-client
 // Copyright 2021 ryan kurte <ryan@kurte.nz>
 
-use coap_lite::Packet;
 use async_trait::async_trait;
+use coap_lite::Packet;
 use futures::{Future, Stream};
 
 use crate::RequestOptions;
@@ -28,7 +28,8 @@ pub trait Backend<E>: Send {
 
     async fn request(&mut self, req: Packet, opts: RequestOptions) -> Result<Packet, E>;
 
-    async fn observe(&mut self, resource: String, opts: RequestOptions) -> Result<Self::Observe, E>;
+    async fn observe(&mut self, resource: String, opts: RequestOptions)
+        -> Result<Self::Observe, E>;
 
     async fn unobserve(&mut self, o: Self::Observe) -> Result<(), E>;
 }

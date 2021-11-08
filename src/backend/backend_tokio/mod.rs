@@ -302,7 +302,7 @@ impl Tokio {
         ctl_tx: Sender<Ctl>,
         token: u32,
         resource: String,
-        rx: Option<Receiver<Packet>>,
+        mut rx: Receiver<Packet>,
     ) -> Result<(), Error> {
         debug!("Deregister observer: {:x}", token);
 
@@ -310,48 +310,47 @@ impl Tokio {
         // Note this is not -technically- required as the next observe
         // response will prompt a Reset, however, it's nice to do
         // https://tools.ietf.org/html/rfc7641#section-3.6
-        if let Some(mut rx) = rx {
-            let mut deregister = Packet::new();
-            deregister.header.message_id = rand::random();
-            deregister.header.code = MessageClass::Request(RequestType::Get);
-            deregister.header.set_type(MessageType::Confirmable);
-            deregister.set_token(token.to_le_bytes().to_vec());
 
-            let res = resource.trim_start_matches("/");
-            deregister.add_option(CoapOption::UriPath, res.as_bytes().to_vec());
-            deregister.set_observe(vec![ObserveOption::Deregister as u8]);
+        let mut deregister = Packet::new();
+        deregister.header.message_id = rand::random();
+        deregister.header.code = MessageClass::Request(RequestType::Get);
+        deregister.header.set_type(MessageType::Confirmable);
+        deregister.set_token(token.to_le_bytes().to_vec());
 
-            // Send de-register with retries
-            let resp = Self::do_send_retry(
-                ctl_tx.clone(),
-                &mut rx,
-                deregister,
-                RequestOptions::default(),
-            )
-            .await;
+        let res = resource.trim_start_matches("/");
+        deregister.add_option(CoapOption::UriPath, res.as_bytes().to_vec());
+        deregister.set_observe(vec![ObserveOption::Deregister as u8]);
 
-            debug!("Deregister response: {:?}", resp);
+        // Send de-register with retries
+        let resp = Self::do_send_retry(
+            ctl_tx.clone(),
+            &mut rx,
+            deregister,
+            RequestOptions::default(),
+        )
+        .await;
 
-            match resp {
-                Ok(Some(v)) => {
-                    debug!("Deregister response: {:?}", v);
+        debug!("Deregister response: {:?}", resp);
 
-                    match v.header.code {
-                        MessageClass::Response(s) if !status_is_ok(s) => {
-                            debug!("Deregister error (code: {:?})", s);
-                            // TODO: propagate error
-                        }
-                        _ => {
-                            debug!("Deregister OK!");
-                        }
+        match resp {
+            Ok(Some(v)) => {
+                debug!("Deregister response: {:?}", v);
+
+                match v.header.code {
+                    MessageClass::Response(s) if !status_is_ok(s) => {
+                        debug!("Deregister error (code: {:?})", s);
+                        // TODO: propagate error
+                    }
+                    _ => {
+                        debug!("Deregister OK!");
                     }
                 }
-                Ok(None) => {
-                    debug!("Deregister request timed out");
-                }
-                Err(e) => {
-                    debug!("Error sending deregister request: {:?}", e);
-                }
+            }
+            Ok(None) => {
+                debug!("Deregister request timed out");
+            }
+            Err(e) => {
+                debug!("Error sending deregister request: {:?}", e);
             }
         }
 
@@ -401,15 +400,10 @@ unsafe impl<T> Send for TokioRequest<T> {}
 pub struct TokioObserve {
     token: u32,
     resource: String,
-    inner: ObserveState,
+    rx: Receiver<Packet>,
 }
 
 unsafe impl Send for TokioObserve {}
-
-pub enum ObserveState {
-    Init(Pin<Box<dyn Future<Output = Result<(u32, Receiver<Packet>), Error>>>>),
-    Stream(Receiver<Packet>),
-}
 
 impl Observer<Error> for TokioObserve {
     fn token(&self) -> u32 {
@@ -425,63 +419,41 @@ impl Stream for TokioObserve {
     type Item = Result<Packet, Error>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        match &mut self.as_mut().inner {
-            // Handle init state, establishing observation
-            ObserveState::Init(s) => {
-                match s.poll_unpin(cx) {
-                    Poll::Ready(Ok((token, stream))) => {
-                        // Set token and new stream
-                        self.token = token;
-                        self.inner = ObserveState::Stream(stream);
-                        // Signal waker to immediately re-poll on the stream
-                        cx.waker().clone().wake();
-                        Poll::Pending
-                    }
-                    Poll::Ready(Err(e)) => Poll::Ready(Some(Err(e))),
-                    Poll::Pending => Poll::Pending,
-                }
-            }
-            // Handle streaming state, polling on receive
-            ObserveState::Stream(s) => match s.poll_recv(cx) {
-                Poll::Ready(Some(p)) => Poll::Ready(Some(Ok(p))),
-                Poll::Ready(None) => Poll::Ready(None),
-                Poll::Pending => Poll::Pending,
-            },
+        match self.rx.poll_recv(cx) {
+            Poll::Ready(Some(p)) => Poll::Ready(Some(Ok(p))),
+            Poll::Ready(None) => Poll::Ready(None),
+            Poll::Pending => Poll::Pending,
         }
     }
 }
 
+#[async_trait::async_trait]
 impl Backend<std::io::Error> for Tokio {
-    type Request = TokioRequest<Packet>;
     type Observe = TokioObserve;
-    type Unobserve = TokioRequest<()>;
 
-    fn request(&mut self, req: Packet, opts: RequestOptions) -> Self::Request {
-        let inner = Tokio::do_request(self.ctl_tx.clone(), req, opts);
-        TokioRequest {
-            inner: Box::pin(inner),
-        }
+    async fn request(
+        &mut self,
+        req: Packet,
+        opts: RequestOptions,
+    ) -> Result<Packet, std::io::Error> {
+        Tokio::do_request(self.ctl_tx.clone(), req, opts).await
     }
 
-    fn observe(&mut self, resource: String, opts: RequestOptions) -> Self::Observe {
-        let init = Tokio::do_observe(self.ctl_tx.clone(), resource.clone(), opts);
-        TokioObserve {
-            token: 0,
+    async fn observe(
+        &mut self,
+        resource: String,
+        opts: RequestOptions,
+    ) -> Result<Self::Observe, std::io::Error> {
+        let (token, rx) = Tokio::do_observe(self.ctl_tx.clone(), resource.clone(), opts).await?;
+        Ok(TokioObserve {
+            token,
             resource,
-            inner: ObserveState::Init(Box::pin(init)),
-        }
+            rx,
+        })
     }
 
-    fn unobserve(&mut self, o: Self::Observe) -> Self::Unobserve {
-        let rx = match o.inner {
-            ObserveState::Init(_) => None,
-            ObserveState::Stream(s) => Some(s),
-        };
-
-        let inner = Tokio::do_unobserve(self.ctl_tx.clone(), o.token, o.resource, rx);
-        TokioRequest {
-            inner: Box::pin(inner),
-        }
+    async fn unobserve(&mut self, o: Self::Observe) -> Result<(), std::io::Error> {
+        Tokio::do_unobserve(self.ctl_tx.clone(), o.token, o.resource, o.rx).await
     }
 }
 

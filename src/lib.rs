@@ -329,8 +329,10 @@ where
         &mut self,
         resource: &str,
         opts: &RequestOptions,
-    ) -> <T as Backend<E>>::Observe {
-        self.transport.observe(resource.to_string(), opts.clone())
+    ) -> Result<<T as Backend<E>>::Observe, E> {
+        self.transport
+            .observe(resource.to_string(), opts.clone())
+            .await
     }
 
     /// Deregister an observation

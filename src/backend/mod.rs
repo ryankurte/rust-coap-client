@@ -2,6 +2,7 @@
 // https://github.com/ryankurte/rust-coap-client
 // Copyright 2021 ryan kurte <ryan@kurte.nz>
 
+use async_trait::async_trait;
 use coap_lite::Packet;
 use futures::{Future, Stream};
 
@@ -21,14 +22,14 @@ pub trait Observer<E>: Stream<Item = Result<Packet, E>> + Send {
 }
 
 /// Generic transport trait for implementing CoAP client backends
+#[async_trait]
 pub trait Backend<E>: Send {
-    type Request: Future<Output = Result<Packet, E>> + Send;
     type Observe: Observer<E>;
-    type Unobserve: Future<Output = Result<(), E>> + Send;
 
-    fn request(&mut self, req: Packet, opts: RequestOptions) -> Self::Request;
+    async fn request(&mut self, req: Packet, opts: RequestOptions) -> Result<Packet, E>;
 
-    fn observe(&mut self, resource: String, opts: RequestOptions) -> Self::Observe;
+    async fn observe(&mut self, resource: String, opts: RequestOptions)
+        -> Result<Self::Observe, E>;
 
-    fn unobserve(&mut self, o: Self::Observe) -> Self::Unobserve;
+    async fn unobserve(&mut self, o: Self::Observe) -> Result<(), E>;
 }

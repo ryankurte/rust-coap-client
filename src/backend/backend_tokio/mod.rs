@@ -226,13 +226,14 @@ impl Tokio {
         resource: String,
         opts: RequestOptions,
     ) -> Result<(u32, Receiver<Packet>), Error> {
-        debug!("Setup observe for resource: {}", resource);
 
         // Create response channel
         let (tx, mut rx) = channel(10);
 
         // Create token
         let token = rand::random::<u32>();
+
+        debug!("Setup observe for resource: {} (token: {:02x?})", resource, token.to_le_bytes());
 
         // Register handler
         if let Err(e) = ctl_tx.send(Ctl::Register(token, tx.clone())).await {
@@ -265,12 +266,12 @@ impl Tokio {
 
                 // Check observe response
                 // Technically the server should respond with an empty observe...
-                // however libcoap does not appear to do this
+                // however libcoap appears to vary behaviour for first and N+1 observations
                 // https://tools.ietf.org/html/rfc7641#section-3.1
                 let obs = v.get_observe();
-                debug!("Observe response: {:02x?}", obs);
+                debug!("Observe response {:?}: {:02x?}", v.header.code, obs);
 
-                if obs.is_some() {
+                if obs.is_some() || v.header.code == MessageClass::Response(ResponseType::Content) {
                     debug!("Registered observer!");
 
                     // TODO: Forward response if it's valid GET data

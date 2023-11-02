@@ -158,7 +158,7 @@ impl Tokio {
     ) -> Result<Option<Packet>, Error> {
         // Send request and await response for the allowed number of retries
         let mut resp = Ok(None);
-        for i in 0..opts.retries {
+        for i in 0..=opts.retries {
             // TODO: control / bump message_id each retry?
 
             // Encode data
@@ -512,5 +512,27 @@ mod test {
             .await
             .unwrap();
         assert_eq!(resp, b"world".to_vec());
+    }
+
+    #[tokio::test]
+    async fn tests_no_retries() {
+        let _ = SimpleLogger::init(LevelFilter::Debug, Config::default());
+
+        let mut client = TokioClient::connect("coap://coap.me:5683", &ClientOptions::default())
+            .await
+            .unwrap();
+
+        let opts = RequestOptions {
+            retries: 0,
+            ..Default::default()
+        };
+
+        let resp = client
+            .get("hello", &RequestOptions::default())
+            .await
+            .unwrap();
+        assert_eq!(resp, b"world".to_vec());
+
+        client.close().await.unwrap();
     }
 }

@@ -103,7 +103,7 @@ pub enum Transport {
 // TODO: impl std::error::Error via thiserror
 #[derive(Debug, thiserror::Error)]
 pub enum Error<T: std::fmt::Debug> {
-    #[error("Transport / Backend error: {:?}", 0)]
+    #[error("Transport / Backend error: {0:?}")]
     Transport(T),
     #[error("Invalid host specification")]
     InvalidHost,

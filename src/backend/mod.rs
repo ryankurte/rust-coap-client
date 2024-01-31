@@ -4,7 +4,7 @@
 
 use async_trait::async_trait;
 use coap_lite::Packet;
-use futures::{Future, Stream};
+use futures::Stream;
 
 use crate::RequestOptions;
 

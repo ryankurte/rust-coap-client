@@ -226,14 +226,17 @@ impl Tokio {
         resource: String,
         opts: RequestOptions,
     ) -> Result<(u32, Receiver<Packet>), Error> {
-
         // Create response channel
         let (tx, mut rx) = channel(10);
 
         // Create token
         let token = rand::random::<u32>();
 
-        debug!("Setup observe for resource: {} (token: {:02x?})", resource, token.to_le_bytes());
+        debug!(
+            "Setup observe for resource: {} (token: {:02x?})",
+            resource,
+            token.to_le_bytes()
+        );
 
         // Register handler
         if let Err(e) = ctl_tx.send(Ctl::Register(token, tx.clone())).await {
@@ -252,7 +255,7 @@ impl Tokio {
 
         let res = resource.trim_start_matches("/");
         register.add_option(CoapOption::UriPath, res.as_bytes().to_vec());
-        register.set_observe(vec![ObserveOption::Register as u8]);
+        register.set_observe_value(usize::from(ObserveOption::Register) as u32);
 
         // Execute register command
 
@@ -268,10 +271,12 @@ impl Tokio {
                 // Technically the server should respond with an empty observe...
                 // however libcoap appears to vary behaviour for first and N+1 observations
                 // https://tools.ietf.org/html/rfc7641#section-3.1
-                let obs = v.get_observe();
+                let obs = v.get_observe_value();
                 debug!("Observe response {:?}: {:02x?}", v.header.code, obs);
 
-                if obs.is_some() || v.header.code == MessageClass::Response(ResponseType::Content) {
+                if obs.is_some_and(|v| v.is_ok())
+                    || v.header.code == MessageClass::Response(ResponseType::Content)
+                {
                     debug!("Registered observer!");
 
                     // TODO: Forward response if it's valid GET data
@@ -320,7 +325,7 @@ impl Tokio {
 
         let res = resource.trim_start_matches("/");
         deregister.add_option(CoapOption::UriPath, res.as_bytes().to_vec());
-        deregister.set_observe(vec![ObserveOption::Deregister as u8]);
+        deregister.set_observe_value(usize::from(ObserveOption::Deregister) as u32);
 
         // Send de-register with retries
         let resp = Self::do_send_retry(
